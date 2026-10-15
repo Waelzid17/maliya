@@ -1,0 +1,71 @@
+# Maliya — tout en local : base, backend, IA, interface.
+#   docker compose up --build        puis ouvrir http://localhost:3000
+#   docker compose --profile llm up  pour ajouter un LLM local (Ollama)
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: maliya
+      POSTGRES_USER: maliya
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-maliya}
+      TZ: Africa/Casablanca
+    ports:
+      - "5432:5432"
+    volumes:
+      - donnees:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maliya -d maliya"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/maliya
+      DB_USER: maliya
+      DB_PASSWORD: ${DB_PASSWORD:-maliya}
+      IA_URL: http://ia:8000
+      MALIYA_AUJOURDHUI: ${MALIYA_AUJOURDHUI:-2026-10-15}
+      FLYWAY_LOCATIONS: ${FLYWAY_LOCATIONS:-classpath:db/migration,classpath:db/demo}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ia:
+    build: ./ai-service
+    environment:
+      DATABASE_URL: postgresql://maliya:${DB_PASSWORD:-maliya}@db:5432/maliya
+      MALIYA_AUJOURDHUI: ${MALIYA_AUJOURDHUI:-2026-10-15}
+      MALIYA_PRENOM: ${MALIYA_PRENOM:-Wael}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+
+  front:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - modeles_llm:/root/.ollama
+
+volumes:
+  donnees:
+  modeles_llm:
